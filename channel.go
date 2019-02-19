@@ -8,31 +8,31 @@ import (
 	"github.com/manvalls/wit"
 )
 
-// ErrNoContextOrOutput is returned when there are missing parameters in the Add function
-var ErrNoContextOrOutput = errors.New("You need to provide a valid Context and Ouput channel")
+// ErrNoContextOrSocket is returned when there are missing parameters in the Add function
+var ErrNoContextOrSocket = errors.New("You need to provide a valid Context and Socket channel")
 
 // Channel holds the channel information
 type Channel struct {
 	mutex   *sync.Mutex
-	clients map[string]map[*struct{}]chan<- wit.Command
+	clients map[string]map[*struct{}]AddOptions
 }
 
 // NewChannel builds a new channel
 func NewChannel() Channel {
-	return Channel{&sync.Mutex{}, map[string]map[*struct{}]chan<- wit.Command{}}
+	return Channel{&sync.Mutex{}, map[string]map[*struct{}]AddOptions{}}
 }
 
 // AddOptions includes the list of options that Add accepts
 type AddOptions = struct {
-	Context  context.Context
-	Output   chan<- wit.Command
+	context.Context
+	Socket   chan<- wit.Command
 	ClientID string
 }
 
 // Join adds a client to the channel, waits until the context is done and removes it
 func (c Channel) Join(options AddOptions) error {
-	if options.Context == nil || options.Output == nil {
-		return ErrNoContextOrOutput
+	if options.Context == nil || options.Socket == nil {
+		return ErrNoContextOrSocket
 	}
 
 	key := &struct{}{}
@@ -41,11 +41,11 @@ func (c Channel) Join(options AddOptions) error {
 
 	cmap, ok := c.clients[options.ClientID]
 	if !ok {
-		cmap = map[*struct{}]chan<- wit.Command{}
+		cmap = map[*struct{}]AddOptions{}
 		c.clients[options.ClientID] = cmap
 	}
 
-	cmap[key] = options.Output
+	cmap[key] = options
 
 	c.mutex.Unlock()
 
@@ -70,8 +70,11 @@ func (c Channel) Send(cmd wit.Command, clientIDs ...string) {
 
 	for _, clientID := range clientIDs {
 		if cmap, ok := c.clients[clientID]; ok {
-			for _, ch := range cmap {
-				ch <- cmd
+			for _, op := range cmap {
+				select {
+				case <-op.Done():
+				case op.Socket <- cmd:
+				}
 			}
 		}
 	}
@@ -89,8 +92,11 @@ func (c Channel) Broadcast(cmd wit.Command, blacklistClientIDs ...string) {
 
 	for clientID, cmap := range c.clients {
 		if !blacklisted[clientID] {
-			for _, ch := range cmap {
-				ch <- cmd
+			for _, op := range cmap {
+				select {
+				case <-op.Done():
+				case op.Socket <- cmd:
+				}
 			}
 		}
 	}
