@@ -30,7 +30,7 @@ type JoinOptions interface {
 }
 
 // Join adds a client to the channel, waits until the context is done and removes it
-func (c Channel) Join(options JoinOptions) error {
+func (c Channel) Join(options JoinOptions) {
 	key := &struct{}{}
 
 	c.mutex.Lock()
@@ -55,8 +55,6 @@ func (c Channel) Join(options JoinOptions) error {
 	}
 
 	c.mutex.Unlock()
-
-	return nil
 }
 
 // Send sends a message to a list of clients
